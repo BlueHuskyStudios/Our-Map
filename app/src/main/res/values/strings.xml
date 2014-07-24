@@ -2,6 +2,10 @@
 <resources>
 
     <string name="app_name">Our Map</string>
-    <string name="title_activity_maps">View Map</string>
+    <string name="title_activity_maps">@string/app_name</string>
+    <string name="drawer_open">[open]</string>
+    <string name="drawer_close">[close]</string>
+    <string name="pref_title_current_provider">Current Provider</string>
+    <string name="pref_unknown">Unknown</string>
 
 </resources>
