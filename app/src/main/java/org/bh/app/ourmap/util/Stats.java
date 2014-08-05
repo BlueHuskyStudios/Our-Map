@@ -5,9 +5,14 @@ import android.location.Location;
 import android.location.LocationManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.os.SystemClock;
 import android.telephony.PhoneStateListener;
 import android.telephony.SignalStrength;
 import android.telephony.TelephonyManager;
+
+import com.google.android.gms.maps.LocationSource;
+
+import java.util.ArrayList;
 
 /**
  * Made for Our Map by and copyrighted to Blue Husky Programming, ©2014 GPLv3.<hr/>
@@ -16,69 +21,102 @@ import android.telephony.TelephonyManager;
  * @version 1.0.0
  * @since 2014-07-22
  */
-public class Stats {
-    public static final Stats CACHE = new Stats();
-    public Location location;
+public class Stats implements LocationSource {
+    public static final Stats CACHE = new Stats(null);
+
+    public Location geoLocation;
     public double signalStrength;
     public String providerName, providerID;
     public SignalType signalType;
+    protected Context context;
 
-    private static TelephonyManager telephonyManager = null;
-    private static ConnectivityManager connectivityManager = null;
+    private TelephonyManager telephonyManager = null;
+    private ConnectivityManager connectivityManager = null;
+    private ArrayList<OnLocationChangedListener> onLocationChangedListeners;
+    private float delay;
+    private float lastTime;
 
-    private static void guaranteeConnectivityManager(Context context)
-    {
+    public Stats(Context context) {
+        this.context = context;
+        onLocationChangedListeners = new ArrayList<OnLocationChangedListener>();
+    }
+
+    /**
+     * Returns the minimum delay between polls, in seconds
+     * @return the minimum delay between polls, in seconds
+     */
+    public float getDelay() {
+        return delay;
+    }
+
+    /**
+     * Sets the minimum delay between polls, in seconds
+     * @param newDelay the minimum delay between polls, in seconds
+     */
+    public Stats setDelay(float newDelay) {
+        delay = newDelay;
+        return this;
+    }
+
+    private void guaranteeConnectivityManager() {
         if (connectivityManager == null)
             connectivityManager = (ConnectivityManager)context.getSystemService(Context.CONNECTIVITY_SERVICE);
     }
 
-    private static void guaranteeTelephonyManager(Context context)
-    {
+    private void guaranteeTelephonyManager() {
         if (telephonyManager == null)
             telephonyManager = (TelephonyManager)context.getSystemService(Context.TELEPHONY_SERVICE);
     }
 
-    public static Location fetchGeoLocation(Context context)
-    {
-        return fetchGeoPosition(context, LocationManager.PASSIVE_PROVIDER);
+    public Location fetchGeoLocation() {
+        return fetchGeoLocation(LocationManager.PASSIVE_PROVIDER);
     }
 
-    public static Location fetchGeoPosition(Context context, String provider)
-    {
+    public Location fetchGeoLocation(String provider) {
         LocationManager lm = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
-        return lm.getLastKnownLocation(provider);
+        CACHE.geoLocation = geoLocation = lm.getLastKnownLocation(provider);
+        System.out.println("Alerting " + onLocationChangedListeners.size() + " location listeners...");
+        for(OnLocationChangedListener olcl : onLocationChangedListeners)
+            olcl.onLocationChanged(geoLocation);
+        return geoLocation;
     }
 
-    public static SignalType fetchSignalType(Context context) {
-        guaranteeConnectivityManager(context);
-        guaranteeTelephonyManager(context);
+    public SignalType fetchSignalType() {
+        guaranteeConnectivityManager();
+        guaranteeTelephonyManager();
         NetworkInfo networkInfo = connectivityManager.getActiveNetworkInfo();
 
         if (networkInfo == null || !networkInfo.isConnected()) {
-            return SignalType.DEAD;
+            return signalType = SignalType.DEAD;
         }
 
+        if (telephonyManager == null)
+            return signalType = SignalType.UNKNOWN;
+
+        /* this never changes
+        System.out.println("Phone type is: " + telephonyManager.getPhoneType());
         switch (telephonyManager.getPhoneType())
         {
             case TelephonyManager.PHONE_TYPE_NONE:
-                return SignalType.DEAD;
+                return signalType = SignalType.DEAD;
             case TelephonyManager.PHONE_TYPE_GSM:
-                return SignalType.DATA_2G; // GSM is only 2G
+                return signalType = SignalType.DATA_2G; // GSM is only 2G
             case TelephonyManager.PHONE_TYPE_CDMA:
             case TelephonyManager.PHONE_TYPE_SIP:
                 break;
-        }
+        }*/
 
+        System.out.println("Network info type is: " + networkInfo.getType());
         switch (networkInfo.getType()) {
             case ConnectivityManager.TYPE_WIFI:
-                return SignalType.UNKNOWN;
+                return signalType = SignalType.UNKNOWN;
+            case ConnectivityManager.TYPE_WIMAX:
+                return signalType = SignalType.DATA_3G_OR_4G;
             case ConnectivityManager.TYPE_MOBILE:
             case ConnectivityManager.TYPE_MOBILE_MMS:
             case ConnectivityManager.TYPE_MOBILE_SUPL:
             case ConnectivityManager.TYPE_MOBILE_DUN:
             case ConnectivityManager.TYPE_MOBILE_HIPRI:
-            case ConnectivityManager.TYPE_WIMAX:
-                return SignalType.DATA_3G_OR_4G;
             case ConnectivityManager.TYPE_BLUETOOTH:
             case ConnectivityManager.TYPE_DUMMY:
             case ConnectivityManager.TYPE_ETHERNET:
@@ -87,22 +125,19 @@ public class Stats {
 
 
 
-
-        if (telephonyManager == null)
-            return SignalType.UNKNOWN;
-
+        System.out.println("Telephony network type is: " + telephonyManager.getNetworkType());
         switch (telephonyManager.getNetworkType())
         {
             case TelephonyManager.NETWORK_TYPE_UNKNOWN:
             case TelephonyManager.NETWORK_TYPE_CDMA:
-                return SignalType.DATA_UNKNOWN;
+                return signalType = SignalType.DATA_UNKNOWN;
             case TelephonyManager.NETWORK_TYPE_EDGE:
-            return SignalType.DATA_EDGE;
+                return signalType = SignalType.DATA_EDGE;
             case TelephonyManager.NETWORK_TYPE_GPRS:
             case TelephonyManager.NETWORK_TYPE_IDEN:
-                return SignalType.DATA_2G;
+                return signalType = SignalType.DATA_2G;
             case TelephonyManager.NETWORK_TYPE_1xRTT:
-                return SignalType.DATA_2G_OR_3G;
+                return signalType = SignalType.DATA_2G_OR_3G;
             case TelephonyManager.NETWORK_TYPE_UMTS:
             case TelephonyManager.NETWORK_TYPE_EVDO_0:
             case TelephonyManager.NETWORK_TYPE_EVDO_A:
@@ -111,60 +146,137 @@ public class Stats {
             case TelephonyManager.NETWORK_TYPE_HSPA:
             case TelephonyManager.NETWORK_TYPE_EVDO_B:
             case TelephonyManager.NETWORK_TYPE_EHRPD:
-            return SignalType.DATA_3G;
+                return signalType = SignalType.DATA_3G;
             case TelephonyManager.NETWORK_TYPE_LTE:
-                return SignalType.DATA_4G_LTE;
+                return signalType = SignalType.DATA_4G_LTE;
             case TelephonyManager.NETWORK_TYPE_HSPAP:
-                return SignalType.DATA_4G;
+                return signalType = SignalType.DATA_4G;
         }
-        return SignalType.UNKNOWN;
+        System.out.println("All else failed.");
+        return
+            CACHE.signalType
+            = signalType
+            = SignalType.UNKNOWN;
     }
 
-    public static double fetchSignalStrength(Context context) {
-        guaranteeTelephonyManager(context);
-        if (telephonyManager == null)
-            return 0;
-
-        PhoneStateListener psl = new PhoneStateListener()
+    /**
+     * Sets a {@link org.bh.app.ourmap.util.SignalStateListener} to be tripped when the signal
+     * strength is calculated or changes.
+     *
+     * @param ssl the listener to be put on alert
+     * @param onlyOnce if {@code true}, the signal strength will only be polled once, instead of on
+     *                 every change
+     * @see org.bh.app.ourmap.util.SignalStateListener
+     */
+    public void awaitSignalStrength(final SignalStateListener ssl, final boolean onlyOnce) {
+        guaranteeTelephonyManager();
+        telephonyManager.listen(new PhoneStateListener()
         {
+            @SuppressWarnings("SpellCheckingInspection")
             @Override
             public void onSignalStrengthsChanged(SignalStrength signalStrength) {
                 super.onSignalStrengthsChanged(signalStrength);
-                System.out.println("CDMA RSSI dBm: "    + signalStrength.getCdmaDbm());
-                System.out.println("CDMA Ec/Io dB*10: " + signalStrength.getCdmaEcio());
-                System.out.println("EVDO RSSI dBm: "    + signalStrength.getEvdoDbm());
-                System.out.println("EVDO Ec/Io dB*10: " + signalStrength.getEvdoEcio());
-                System.out.println("EVDO noise: "       + signalStrength.getEvdoSnr());
-                System.out.println("GSM error rate: "   + signalStrength.getGsmBitErrorRate());
-                System.out.println("GSM signal str: "   + signalStrength.getGsmSignalStrength());
+
+                float now = SystemClock.elapsedRealtime() / 1000f;
+                if (now - lastTime < delay)
+                    return;
+                lastTime = now;
+
+                double val = -1;
+                if (signalStrength.isGsm()) {
+                    /**
+                     * If we're dealing with GSM, Android defines it as TS 27.007 8.5 does:
+                     *
+                     *            0: -113 dBm or less
+                     *            1: -111 dBm (what about -112?)
+                     * 2 through 30: -109 through -53 dBm (they msut only be odd somehow...)
+                     *           31: -51 dBm or higher
+                     *           99: not known or not detectable
+                     *
+                     * We will use this knowledge to try to parse the signal into an easy-to-use
+                     * scale as we define in the documentation for
+                     * {@link SignalStateListener#signalStrengthUpdate(double)}.
+                     */
+                    val = signalStrength.getGsmSignalStrength();
+                    System.out.println("GSM: " + val);
+                    if (val == 99)
+                        val = Double.NaN;
+                    else
+                        /* this scales it so:
+                         *
+                         * 0 == negligible (var => 0.0)
+                         * 10 == nominal   (var => 1.0)
+                         * 30 == excellent (var => 3.0)
+                         */
+                        val = val / 10.0;
+                }
+
+
+                else {
+                    val = signalStrength.getCdmaDbm();
+                    System.out.println("CMDA RSSI: " + val);
+                    val = signalStrength.getCdmaEcio();
+                    System.out.println("CMDA Ec/Io: " + val);
+                    val = signalStrength.getEvdoDbm();
+                    System.out.println("EVDO RSSI: " + val);
+                    val = signalStrength.getEvdoEcio();
+                    System.out.println("EVDO Ec/Io: " + val);
+                }
+
+
+                ssl.signalStrengthUpdate(
+                    CACHE.signalStrength =
+                    Stats.this.signalStrength =
+                    val);
+                if (onlyOnce)
+                    telephonyManager.listen(this, LISTEN_NONE);
             }
-        };
-        return .5;
+        },
+        PhoneStateListener.LISTEN_SIGNAL_STRENGTHS);
     }
 
-    public static String fetchProviderName(Context context)
-    {
-        guaranteeTelephonyManager(context);
-        return telephonyManager.getNetworkOperatorName();
+    public String fetchProviderName() {
+        guaranteeTelephonyManager();
+        return
+            CACHE.providerName
+            = providerName
+            = telephonyManager.getNetworkOperatorName();
     }
 
-    public static String fetchProviderID(Context context)
-    {
-        guaranteeTelephonyManager(context);
-        return telephonyManager.getNetworkOperator();
+    public String fetchProviderID() {
+        guaranteeTelephonyManager();
+        return
+            CACHE.providerID =
+            providerID =
+            telephonyManager.getNetworkOperator();
     }
 
-    public static Stats fetchAll(Context context) {
-        CACHE.location = fetchGeoLocation(context);
-        CACHE.signalStrength = fetchSignalStrength(context);
-        CACHE.signalType = fetchSignalType(context);
-        CACHE.providerName = fetchProviderName(context);
-        CACHE.providerID = fetchProviderID(context);
-        return CACHE;
+    public Stats setContext(Context context) {
+        this.context = context;
+        return this;
     }
 
-    public static enum SignalType
-    {
+    public Stats fetchAll() {
+        fetchGeoLocation();
+//        fetchSignalStrength();
+        fetchSignalType();
+        fetchProviderName();
+        fetchProviderID();
+        return this;
+    }
+
+    @Override
+    public void activate(OnLocationChangedListener onLocationChangedListener) {
+        onLocationChangedListeners.add(onLocationChangedListener);
+    }
+
+    @Override
+    public void deactivate() {
+        onLocationChangedListeners.clear();
+    }
+
+    @SuppressWarnings("UnusedDeclaration")
+    public static enum SignalType {
         /** Signifies 5G signal (not currently used) */
         DATA_5G,
         /** Signifies 4G signal */

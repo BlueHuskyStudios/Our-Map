@@ -1,7 +1,6 @@
 package org.bh.app.ourmap;
 
 import android.app.Fragment;
-import android.app.FragmentManager;
 import android.support.v4.app.ActionBarDrawerToggle;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
@@ -12,10 +11,18 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
 
+import com.google.android.gms.maps.CameraUpdate;
+import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.CameraPosition;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+
+import org.bh.app.ourmap.util.Helper;
+import org.bh.app.ourmap.util.SignalStateListener;
+import org.bh.app.ourmap.util.Stats;
 
 public class MapsActivity extends FragmentActivity {
 
@@ -23,16 +30,29 @@ public class MapsActivity extends FragmentActivity {
     private ActionBarDrawerToggle drawerToggle;
     private ListView drawerList;
     private DrawerLayout drawerLayout;
-    private Fragment mapsFrag, settingsFrag;
+    private Fragment settingsFrag;
+    private SupportMapFragment mapsFrag;
+
+    private double sigStr;
+    private Stats stats;
+    private Marker marker;
+    private boolean tracking = true;
+
+    private static final boolean ONLY_UPDATE_ONCE = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
+
+        stats =
+            new Stats(this)
+            .setDelay(5);
+
         setUpMapIfNeeded();
         buildDrawer();
+        drawerLayout.openDrawer(drawerList);
 
-        mapsFrag = getFragmentManager().findFragmentById(R.id.map);
         settingsFrag = new SettingsActivity.GeneralPreferenceFragment();
     }
 
@@ -44,28 +64,79 @@ public class MapsActivity extends FragmentActivity {
 
     private void buildDrawer()
     {
-        String[] items = getResources().getStringArray(R.array.drawer_items);
-        drawerLayout = (DrawerLayout)findViewById(R.id.drawer_layout);
-        drawerList = (ListView)findViewById(R.id.left_drawer);
+        setDrawerItems(new String[]{getString(R.string.loading_text)});
+
+        stats.awaitSignalStrength(new SignalStateListener() {
+            @Override
+            public void signalStrengthUpdate(double signalStrength) {
+                String[] items = getResources().getStringArray(R.array.drawer_items);
+                {
+                    stats.fetchAll();
+                    items = new String[]
+                    {
+                        "Geo Location: \t ("   + stats.geoLocation.getLatitude() + ", " + stats.geoLocation.getLongitude() + ")",
+                        "Signal Strength: \t " + signalStrength,
+                        "Signal Type: \t "     + stats.signalType,
+                        "Provider name: \t "   + stats.providerName,
+                        "Provider ID: \t "     + stats.providerID
+                    };
+                }
+
+                setDrawerItems(items);
+
+
+
+                LatLng latLng =
+                    new LatLng(
+                        stats.geoLocation.getLatitude(),
+                        stats.geoLocation.getLongitude()
+                    )
+                ;
+
+                if (marker != null)
+                    marker.setPosition(latLng);
+
+                if (tracking) {
+                    CameraUpdate cu =
+                        CameraUpdateFactory.newCameraPosition(
+                            CameraPosition.fromLatLngZoom(
+                                latLng,
+                                map.getMaxZoomLevel() / 2
+//                            Helper.locationAccuracyToCameraZoom(stats.geoLocation.getAccuracy())
+                            )
+                        );
+                    map.animateCamera(cu);
+                }
+            }
+        },
+        ONLY_UPDATE_ONCE);
+        getActionBar().setDisplayHomeAsUpEnabled(true);
+        getActionBar().setHomeButtonEnabled(true);
+    }
+
+    private void setDrawerItems(String[] items) {
+        drawerLayout = (DrawerLayout) findViewById(R.id.drawer_layout);
+        drawerList = (ListView) findViewById(R.id.left_drawer);
         drawerToggle = new ActionBarDrawerToggle(
-            this,
+            MapsActivity.this,
             drawerLayout,
             R.drawable.ic_drawer_dark,
             R.string.drawer_open,
             R.string.drawer_close
         );
+        drawerToggle.setDrawerIndicatorEnabled(true);
 
         drawerList.setAdapter(
             new ArrayAdapter<String>(
-                this,
+                MapsActivity.this,
                 android.R.layout.simple_list_item_1,
-                items));
+                items)
+        );
         drawerList.setOnItemClickListener(new DrawerItemClickListener());
 
         drawerLayout.setDrawerListener(drawerToggle);
-        getActionBar().setDisplayHomeAsUpEnabled(true);
-        getActionBar().setHomeButtonEnabled(true);
     }
+
     private class DrawerItemClickListener implements ListView.OnItemClickListener {
         @Override
         public void onItemClick(AdapterView parent, View view, int position, long id) {
@@ -75,33 +146,35 @@ public class MapsActivity extends FragmentActivity {
 
     /** Swaps fragments in the main content view */
     private void selectItem(int position) {
-        // Create a new fragment and specify the planet to show based on position
-        Fragment fragment = null;
+        /*
+        Bundle args = new Bundle();
         switch (position)
         {
             case 0:
-                fragment = mapsFrag;
+                mapsFrag.setArguments(args);
+                getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.map_holder, mapsFrag, null)
+                    .commit();
                 break;
             case 1:
-                fragment = settingsFrag;
+                settingsFrag.setArguments(args);
+                // Insert the fragment by replacing any existing fragment
+                getFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.map_holder, settingsFrag, null)
+                    .commit();
                 break;
             default:
                 throw new AssertionError("Position must be 0 or 1 (was " + position + ")");
         }
-        Bundle args = new Bundle();
-        fragment.setArguments(args);
 
-        // Insert the fragment by replacing any existing fragment
-        FragmentManager fragmentManager = getFragmentManager();
-        fragmentManager
-            .beginTransaction()
-            .replace(R.id.map, fragment)
-            .commit();
 
         // Highlight the selected item, update the title, and close the drawer
         drawerList.setItemChecked(position, true);
 //        setTitle(mPlanetTitles[position]);
         drawerLayout.closeDrawer(drawerList);
+        */
     }
 
     /**
@@ -123,7 +196,7 @@ public class MapsActivity extends FragmentActivity {
         // Do a null check to confirm that we have not already instantiated the map.
         if (map == null) {
             // Try to obtain the map from the SupportMapFragment.
-            map = ((SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map))
+            map = (mapsFrag = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map))
                     .getMap();
             // Check if we were successful in obtaining the map.
             if (map != null) {
@@ -139,7 +212,15 @@ public class MapsActivity extends FragmentActivity {
      * This should only be called once and when we are sure that {@link #map} is not null.
      */
     private void setUpMap() {
-        map.addMarker(new MarkerOptions().position(new LatLng(0, 0)).title("Marker"));
+        marker = map.addMarker(new MarkerOptions().position(new LatLng(0, 0)).title("Marker"));
+        map.setLocationSource(stats);
+        map.setMyLocationEnabled(true);
+        map.setOnMyLocationButtonClickListener(new GoogleMap.OnMyLocationButtonClickListener() {
+            @Override
+            public boolean onMyLocationButtonClick() {
+                return !(tracking = !tracking);
+            }
+        });
     }
 
     @Override

@@ -7,5 +7,6 @@
     <string name="drawer_close">[close]</string>
     <string name="pref_title_current_provider">Current Provider</string>
     <string name="pref_unknown">Unknown</string>
+    <string name="loading_text">Loading...</string>
 
 </resources>

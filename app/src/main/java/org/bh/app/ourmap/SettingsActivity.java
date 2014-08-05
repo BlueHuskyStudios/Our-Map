@@ -237,7 +237,7 @@ public class SettingsActivity extends PreferenceActivity {
 
     public static void fillStats(Context context)
     {
-        stats = Stats.fetchAll(context);
+        stats = stats.fetchAll();
     }
 
     /**
@@ -255,7 +255,7 @@ public class SettingsActivity extends PreferenceActivity {
             // to their values. When their values change, their summaries are
             // updated to reflect the new value, per the Android Design
             // guidelines.
-            bindPreferenceSummaryToValue(findPreference("example_text"));
+            bindPreferenceSummaryToValue(findPreference("Current Provider"));
             bindPreferenceSummaryToValue(findPreference("example_list"));
 
             fillStats(getActivity());
